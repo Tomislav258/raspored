@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Raspored Nastave</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">Raspored Nastave</div>
+    <div class="sidebar-subtitle">Osnovna škola</div>
+  </div>
+  <ul class="sidebar-nav">
+    <li class="nav-item active" data-page="raspored">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Raspored
+    </li>
+    <li class="nav-item" data-page="profesori">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Profesori
+    </li>
+    <li class="nav-item" data-page="razredi">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Razredi
+    </li>
+    <li class="nav-item" data-page="statistika">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Statistika
+    </li>
+  </ul>
+</nav>
+
+<main class="main-content">
+
+  <div id="page-raspored" class="page active">
+    <div class="page-header">
+      <div>
+        <h1>Tjedni Raspored</h1>
+        <p class="page-subtitle">Kliknite na slot za dodavanje ili uklanjanje razreda (max. 3 istovremeno)</p>
+      </div>
+      <button class="btn-danger" id="btn-obrisi-sve">Obriši sve</button>
+    </div>
+    <div id="schedule-container"></div>
+  </div>
+
+  <div id="page-profesori" class="page">
+    <div class="page-header">
+      <div>
+        <h1>Profesori</h1>
+        <p class="page-subtitle">Upravljajte profesorima i njihovim bojama u rasporedu</p>
+      </div>
+      <button class="btn-primary" id="btn-add-profesor">+ Novi profesor</button>
+    </div>
+    <div id="profesori-list"></div>
+  </div>
+
+  <div id="page-razredi" class="page">
+    <div class="page-header">
+      <div>
+        <h1>Razredi</h1>
+        <p class="page-subtitle">Postavite koliko odjeljenja ima svaki razred. Npr. 2 odjeljenja = 1A i 1B.</p>
+      </div>
+    </div>
+    <div id="razredi-list"></div>
+    <div class="razredi-total" id="razredi-total"></div>
+  </div>
+
+  <div id="page-statistika" class="page">
+    <div class="page-header">
+      <div>
+        <h1>Statistika</h1>
+        <p class="page-subtitle">Pregled opterećenja razreda i profesora po tjednom rasporedu</p>
+      </div>
+    </div>
+    <div id="statistika-container"></div>
+  </div>
+
+</main>
+
+<!-- Modal: Add to schedule -->
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <span id="modal-title" class="modal-title-text"></span>
+      <button class="modal-close" id="btn-modal-close">&times;</button>
+    </div>
+    <div class="modal-section-label">DODAJ RAZRED</div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Razred</label>
+        <div class="razred-list-scroll" id="modal-razred-list"></div>
+      </div>
+      <div class="form-group">
+        <label>Profesor</label>
+        <select id="modal-profesor-select">
+          <option value="">Odaberi profesora...</option>
+        </select>
+      </div>
+      <button class="btn-add-entry" id="btn-modal-add">+ Dodaj u raspored</button>
+    </div>
+    <div class="modal-existing" id="modal-existing"></div>
+  </div>
+</div>
+
+<!-- Modal: Add/Edit Profesor -->
+<div id="modal-profesor-overlay" class="modal-overlay hidden">
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <span id="modal-profesor-title">Novi profesor</span>
+      <button class="modal-close" id="btn-modal-profesor-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Ime profesora</label>
+        <input type="text" id="modal-profesor-name" placeholder="Unesite ime..." />
+      </div>
+      <div class="form-group">
+        <label>Boja u rasporedu</label>
+        <div class="color-picker-row">
+          <input type="color" id="modal-profesor-color" value="#3b82f6" />
+          <span id="modal-profesor-color-hex">#3b82f6</span>
+        </div>
+      </div>
+      <button class="btn-primary btn-full" id="btn-modal-profesor-save">Spremi</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Dialog -->
+<div id="confirm-overlay" class="modal-overlay hidden">
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <span id="confirm-title">Potvrda</span>
+      <button class="modal-close" id="btn-confirm-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-message" style="margin-bottom:20px;color:#374151;"></p>
+      <div style="display:flex;gap:10px;">
+        <button class="btn-secondary btn-full" id="btn-confirm-cancel">Odustani</button>
+        <button class="btn-danger btn-full" id="btn-confirm-ok">Obriši</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
