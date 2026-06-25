@@ -1,96 +1,29 @@
-// ── TIME SLOTS ──────────────────────────────────
-const JUTARNJI = [
-  { num: 1, time: '8:00–8:45' },
-  { num: 2, time: '8:50–9:35' },
-  { num: 3, time: '9:45–10:30' },
-  { num: 4, time: '10:40–11:25' },
-  { num: 5, time: '11:30–12:15' },
-  { num: 6, time: '12:20–13:05' },
-  { num: 7, time: '13:10–13:55' },
-];
-const POPODNEVNI = [
-  { num: 1, time: '14:00–14:45' },
-  { num: 2, time: '14:50–15:35' },
-  { num: 3, time: '15:45–16:30' },
-  { num: 4, time: '16:40–17:25' },
-  { num: 5, time: '17:30–18:15' },
-  { num: 6, time: '18:20–19:05' },
-];
-const DAYS = [
-  { key: 'Po', name: 'Ponedjeljak' },
-  { key: 'Ut', name: 'Utorak' },
-  { key: 'Sr', name: 'Srijeda' },
-  { key: 'Če', name: 'Četvrtak' },
-  { key: 'Pe', name: 'Petak' },
-];
-const SMJENE = ['A', 'B'];
-const MAX_PER_CELL = 3;
-const MAX_HOURS_WEEK = 2;
+import { JUTARNJI, POPODNEVNI, DAYS, SMJENE, MAX_PER_CELL, MAX_HOURS_WEEK } from './script/config.js';
+import { 
+  profesori, razredeConfig, schedule, isprazniSchedule, postaviProfesore,
+  load, save, uid, showToast, is4ProEnabled, toggle4Pro 
+} from './script/state.js';
 
-// ── DEFAULT DATA ─────────────────────────────────
-const DEFAULT_PROFESORI = [
-  { id: 'p1', name: 'Ana', color: '#ef4444' },
-  { id: 'p2', name: 'Vanja', color: '#8b5cf6' },
-  { id: 'p3', name: 'Andrea', color: '#ec4899' },
-  { id: 'p4', name: 'Tomislav', color: '#3b82f6' },
-];
-const DEFAULT_RAZREDI_CONFIG = [
-  { grade: 1, count: 5 },
-  { grade: 2, count: 5 },
-  { grade: 3, count: 5 },
-  { grade: 4, count: 6 },
-  { grade: 5, count: 6 },
-  { grade: 6, count: 5 },
-  { grade: 7, count: 4 },
-  { grade: 8, count: 2 },
-];
+// Varijabla za potvrdu dijaloga ostaje lokalna ovdje gdje se izvršavaju eventi
+let confirmCallback = null;
 
-// ── STATE ────────────────────────────────────────
-let profesori = [];
-let razredeConfig = [];  // [{grade, count}]
-// schedule: { [smjena]: { [day]: { [period_type_num]: [{razredId, profesorId}] } } }
-let schedule = {};
-
-// ── PERSIST ──────────────────────────────────────
-function save() {
-  localStorage.setItem('rn_profesori', JSON.stringify(profesori));
-  localStorage.setItem('rn_razredi', JSON.stringify(razredeConfig));
-  localStorage.setItem('rn_schedule', JSON.stringify(schedule));
-}
-function load() {
-  try {
-    const p = localStorage.getItem('rn_profesori');
-    profesori = p ? JSON.parse(p) : JSON.parse(JSON.stringify(DEFAULT_PROFESORI));
-    const r = localStorage.getItem('rn_razredi');
-    razredeConfig = r ? JSON.parse(r) : JSON.parse(JSON.stringify(DEFAULT_RAZREDI_CONFIG));
-    const s = localStorage.getItem('rn_schedule');
-    schedule = s ? JSON.parse(s) : {};
-  } catch(e) {
-    profesori = JSON.parse(JSON.stringify(DEFAULT_PROFESORI));
-    razredeConfig = JSON.parse(JSON.stringify(DEFAULT_RAZREDI_CONFIG));
-    schedule = {};
-  }
-}
-
-// ── HELPERS ──────────────────────────────────────
-function uid() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
+// ── HELPERS (ovisni o konfiguraciji) ─────────────────
 function getProfesor(id) { return profesori.find(p => p.id === id); }
 
 function getAllRazredi() {
-  // Returns array of class IDs like "1A", "1B", "2A" etc.
   const list = [];
+  if (is4ProEnabled) {
+    list.push('4.PRO');
+  }
   razredeConfig.forEach(({ grade, count }) => {
     for (let i = 0; i < count; i++) {
-      const letter = String.fromCharCode(65 + i); // A, B, C...
+      const letter = String.fromCharCode(65 + i);
       list.push(`${grade}${letter}`);
     }
   });
   return list;
 }
 
-// Get all entries in a smjena for a given razredId
 function getWeeklyHoursForRazred(smjena, razredId) {
   let count = 0;
   const smjenaData = schedule[smjena] || {};
@@ -117,26 +50,38 @@ function getCell(smjena, day, cellKey) {
   return schedule[smjena][day][cellKey];
 }
 
-// ── TOAST ────────────────────────────────────────
-let toastTimer = null;
-function showToast(msg, type = 'error') {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className = `toast ${type}`;
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.className = 'toast hidden'; }, 3200);
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── NAVIGATION ───────────────────────────────────
-function setPage(pageId) {
+function handleRouting() {
+  // Uzimamo riječ iza '#' (npr. 'raspored'), a ako nema ničega, default je 'raspored'
+  const hash = window.location.hash.replace('#', '') || 'raspored';
+  
+  // Provjeravamo postoji li uopće ta stranica u HTML-u da ne baci grešku
+  const targetPage = document.getElementById(`page-${hash}`);
+  const targetNav = document.querySelector(`.nav-item[data-page="${hash}"]`);
+  
+  if (!targetPage) {
+    // Ako netko upiše krivi #link, vrati ga na početni raspored
+    window.location.hash = '#raspored';
+    return;
+  }
+
+  // Sakrij sve stranice i makni aktivne klase s navigacije
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById(`page-${pageId}`).classList.add('active');
-  document.querySelector(`.nav-item[data-page="${pageId}"]`).classList.add('active');
-  if (pageId === 'raspored') renderSchedule();
-  if (pageId === 'profesori') renderProfesori();
-  if (pageId === 'razredi') renderRazredi();
-  if (pageId === 'statistika') renderStatistika();
+
+  // Prikaži aktivnu stranicu i označi gumb u navigaciji
+  targetPage.classList.add('active');
+  if (targetNav) targetNav.classList.add('active');
+
+  // Pokreni crtanje ovisno o tome na kojoj smo stranici
+  if (hash === 'raspored') renderSchedule();
+  if (hash === 'profesori') renderProfesori();
+  if (hash === 'razredi') renderRazredi();
+  if (hash === 'statistika') renderStatistika();
 }
 
 // ── RENDER SCHEDULE ───────────────────────────────
@@ -159,9 +104,7 @@ function buildScheduleTable(smjena) {
   const table = document.createElement('table');
   table.className = 'schedule-table';
 
-  // Row 1: group headers
   const row1 = document.createElement('tr');
-  // empty corner cell spanning day column
   const corner = document.createElement('th');
   corner.rowSpan = 2;
   corner.style.cssText = 'width:36px;background:#f8fafc;border-right:2px solid #e2e8f0;';
@@ -178,10 +121,8 @@ function buildScheduleTable(smjena) {
   thP.className = 'th-group popodnevni';
   thP.textContent = 'POPODNEVNI SATI';
   row1.appendChild(thP);
-
   table.appendChild(row1);
 
-  // Row 2: individual hour headers
   const row2 = document.createElement('tr');
   JUTARNJI.forEach(({ num, time }) => {
     const th = document.createElement('th');
@@ -197,22 +138,15 @@ function buildScheduleTable(smjena) {
   });
   table.appendChild(row2);
 
-  // Data rows
-  DAYS.forEach(({ key, name }) => {
+  DAYS.forEach(({ key }) => {
     const tr = document.createElement('tr');
     const tdDay = document.createElement('td');
     tdDay.className = 'td-day';
     tdDay.textContent = key;
     tr.appendChild(tdDay);
 
-    // Jutarnji cells
-    JUTARNJI.forEach(({ num }) => {
-      tr.appendChild(buildCell(smjena, key, 'j', num));
-    });
-    // Popodnevni cells
-    POPODNEVNI.forEach(({ num }) => {
-      tr.appendChild(buildCell(smjena, key, 'p', num));
-    });
+    JUTARNJI.forEach(({ num }) => { tr.appendChild(buildCell(smjena, key, 'j', num)); });
+    POPODNEVNI.forEach(({ num }) => { tr.appendChild(buildCell(smjena, key, 'p', num)); });
     table.appendChild(tr);
   });
 
@@ -268,7 +202,7 @@ function removeEntry(smjena, day, cellKey, idx) {
 }
 
 // ── MODAL: Schedule ───────────────────────────────
-let modalCtx = null; // {smjena, day, type, num, cellKey, dayName, slotLabel}
+let modalCtx = null;
 let selectedRazred = null;
 
 function openModal(smjena, day, type, num) {
@@ -281,10 +215,8 @@ function openModal(smjena, day, type, num) {
   modalCtx = { smjena, day, type, num, cellKey };
   selectedRazred = null;
 
-  document.getElementById('modal-title').textContent =
-    `${smjena} smjena — ${dayObj.name}, ${num}. sat (${slot.time})`;
+  document.getElementById('modal-title').textContent = `${smjena} smjena — ${dayObj.name}, ${num}. sat (${slot.time})`;
 
-  // Populate razred list
   const razredList = document.getElementById('modal-razred-list');
   razredList.innerHTML = '';
   const allRazredi = getAllRazredi();
@@ -310,7 +242,6 @@ function openModal(smjena, day, type, num) {
     razredList.appendChild(div);
   });
 
-  // Populate profesor dropdown
   const sel = document.getElementById('modal-profesor-select');
   sel.innerHTML = '<option value="">Odaberi profesora...</option>';
   profesori.forEach(p => {
@@ -320,7 +251,6 @@ function openModal(smjena, day, type, num) {
     sel.appendChild(opt);
   });
 
-  // Show existing entries
   const existingEl = document.getElementById('modal-existing');
   existingEl.innerHTML = '';
   if (entries.length > 0) {
@@ -342,7 +272,7 @@ function openModal(smjena, day, type, num) {
       `;
       div.querySelector('.btn-remove-entry').addEventListener('click', () => {
         removeEntry(smjena, day, cellKey, idx);
-        openModal(smjena, day, type, num); // re-open to refresh
+        openModal(smjena, day, type, num);
       });
       existingEl.appendChild(div);
     });
@@ -363,28 +293,35 @@ function addToSchedule() {
   const profesorId = document.getElementById('modal-profesor-select').value;
   if (!profesorId) { showToast('Odaberite profesora!'); return; }
 
-  const { smjena, day, cellKey } = modalCtx;
+  const { smjena, day, cellKey, type, num } = modalCtx;
   const entries = getCell(smjena, day, cellKey);
 
-  // Max per cell check
-  if (entries.length >= MAX_PER_CELL) {
-    showToast(`Maksimalno ${MAX_PER_CELL} razreda po slotu!`); return;
-  }
-  // Already in cell
-  if (entries.some(e => e.razredId === selectedRazred)) {
-    showToast('Ovaj razred je već u ovom slotu!'); return;
-  }
-  // Weekly hours check
+  if (entries.length >= MAX_PER_CELL) { showToast(`Maksimalno ${MAX_PER_CELL} razreda po slotu!`); return; }
+  if (entries.some(e => e.razredId === selectedRazred)) { showToast('Ovaj razred je već u ovom slotu!'); return; }
+  
   const weekly = getWeeklyHoursForRazred(smjena, selectedRazred);
-  if (weekly >= MAX_HOURS_WEEK) {
-    showToast(`${selectedRazred} već ima ${MAX_HOURS_WEEK} sata tjedno u ${smjena} smjeni!`); return;
+  if (weekly >= MAX_HOURS_WEEK) { showToast(`${selectedRazred} već ima ${MAX_HOURS_WEEK} sata tjedno u ${smjena} smjeni!`); return; }
+  let profesorZauzet = false;
+  
+  SMJENE.forEach(smn => {
+    const smjenaData = schedule[smn] || {};
+    const dayData = smjenaData[day] || {};
+    const trenutniSlotEntries = dayData[cellKey] || [];
+    
+    if (trenutniSlotEntries.some(e => e.profesorId === profesorId)) {
+      profesorZauzet = true;
+    }
+  });
+
+  if (profesorZauzet) {
+    const prof = getProfesor(profesorId);
+    showToast(`Profesor ${prof ? prof.name : ''} je već zauzet u ovom terminu!`);
+    return;
   }
 
   entries.push({ razredId: selectedRazred, profesorId });
   save();
   renderSchedule();
-  // Re-open to show updated state
-  const { type, num } = modalCtx;
   openModal(smjena, day, type, num);
   showToast(`${selectedRazred} dodan u raspored!`, 'success');
 }
@@ -407,12 +344,8 @@ function renderProfesori() {
         <div class="profesor-color-code">${p.color}</div>
       </div>
       <div class="profesor-actions">
-        <button class="btn-icon" data-edit="${p.id}" title="Uredi">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="btn-icon danger" data-del="${p.id}" title="Obriši">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14a2 2 0 0 1-2,2H8a2 2 0 0 1-2-2L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/><path d="M9,6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1,1v2"/></svg>
-        </button>
+        <button class="btn-icon" data-edit="${p.id}" title="Uredi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+        <button class="btn-icon danger" data-del="${p.id}" title="Obriši"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14a2 2 0 0 1-2,2H8a2 2 0 0 1-2-2L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/><path d="M9,6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1,1v2"/></svg></button>
       </div>
     `;
     card.querySelector('[data-edit]').addEventListener('click', () => openProfesorModal(p.id));
@@ -432,22 +365,20 @@ function openProfesorModal(id = null) {
   if (id) {
     const p = getProfesor(id);
     titleEl.textContent = 'Uredi profesora';
-    nameEl.value = p.name;
-    colorEl.value = p.color;
-    hexEl.textContent = p.color;
+    nameEl.value = p.name; colorEl.value = p.color; hexEl.textContent = p.color;
   } else {
     titleEl.textContent = 'Novi profesor';
-    nameEl.value = '';
-    colorEl.value = '#3b82f6';
-    hexEl.textContent = '#3b82f6';
+    nameEl.value = ''; colorEl.value = '#3b82f6'; hexEl.textContent = '#3b82f6';
   }
   document.getElementById('modal-profesor-overlay').classList.remove('hidden');
   setTimeout(() => nameEl.focus(), 60);
 }
+
 function closeProfesorModal() {
   document.getElementById('modal-profesor-overlay').classList.add('hidden');
   editingProfesorId = null;
 }
+
 function saveProfesor() {
   const name = document.getElementById('modal-profesor-name').value.trim();
   const color = document.getElementById('modal-profesor-color').value;
@@ -464,14 +395,12 @@ function saveProfesor() {
   showToast('Profesor spremljen!', 'success');
 }
 
-let confirmCallback = null;
 function confirmDeleteProfesor(id) {
   const p = getProfesor(id);
   document.getElementById('confirm-title').textContent = 'Obriši profesora';
-  document.getElementById('confirm-message').textContent =
-    `Sigurno želite obrisati profesora "${p.name}"? Unosi u rasporedu s ovim profesorom ostat će bez profesora.`;
+  document.getElementById('confirm-message').textContent = `Sigurno želite obrisati profesora "${p.name}"? Unosi u rasporedu s ovim profesorom ostat će bez profesora.`;
   confirmCallback = () => {
-    profesori = profesori.filter(x => x.id !== id);
+    postaviProfesore(profesori.filter(x => x.id !== id));
     save();
     closeConfirm();
     renderProfesori();
@@ -479,6 +408,7 @@ function confirmDeleteProfesor(id) {
   };
   document.getElementById('confirm-overlay').classList.remove('hidden');
 }
+
 function closeConfirm() {
   document.getElementById('confirm-overlay').classList.add('hidden');
   confirmCallback = null;
@@ -490,18 +420,14 @@ function renderRazredi() {
   list.innerHTML = '';
   razredeConfig.forEach(({ grade, count }, idx) => {
     const odjeljenja = [];
-    for (let i = 0; i < count; i++) {
-      odjeljenja.push(`${grade}${String.fromCharCode(65 + i)}`);
-    }
+    for (let i = 0; i < count; i++) { odjeljenja.push(`${grade}${String.fromCharCode(65 + i)}`); }
     const card = document.createElement('div');
     card.className = 'razred-card';
     card.innerHTML = `
       <div class="razred-badge">${grade}.</div>
       <div class="razred-info">
         <div class="razred-name">${grade}. razred</div>
-        <div class="razred-odjeljenja">
-          ${odjeljenja.map(o => `<span class="odjeljenje-chip">${o}</span>`).join('')}
-        </div>
+        <div class="razred-odjeljenja">${odjeljenja.map(o => `<span class="odjeljenje-chip">${o}</span>`).join('')}</div>
       </div>
       <div class="razred-counter">
         <button class="counter-btn" data-idx="${idx}" data-dir="-1">−</button>
@@ -520,8 +446,37 @@ function renderRazredi() {
     });
     list.appendChild(card);
   });
+  const proCard = document.createElement('div');
+  proCard.className = 'razred-card';
+  proCard.style.borderLeft = '4px solid #10b981'; // Zeleni rub da se istakne
+  proCard.innerHTML = `
+    <div class="razred-badge" style="background:#e6f4ea; color:#10b981;">PRO</div>
+    <div class="razred-info">
+      <div class="razred-name">4.PRO razred</div>
+      <div class="razred-odjeljenja">
+        <span class="odjeljenje-chip" style="${is4ProEnabled ? '' : 'background:#e2e8f0; color:#94a3b8; text-line-through'}">
+          4.PRO (${is4ProEnabled ? 'Uključen' : 'Isključen'})
+        </span>
+      </div>
+    </div>
+    <div class="razred-counter">
+      <label class="switch" style="position:relative; display:inline-block; width:44px; height:24px;">
+        <input type="checkbox" id="toggle-4pro" ${is4ProEnabled ? 'checked' : ''} style="opacity:0; width:0; height:0;">
+        <span class="slider" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${is4ProEnabled ? '#10b981' : '#cbd5e1'}; transition:.3s; border-radius:24px;"></span>
+      </label>
+    </div>
+  `;
 
-  const total = razredeConfig.reduce((s, r) => s + r.count, 0);
+  // Slušač događaja za On/Off sklopku
+  proCard.querySelector('#toggle-4pro').addEventListener('change', (e) => {
+    toggle4Pro(e.target.checked);
+    save();
+    renderRazredi(); // Ponovno iscrtaj stranicu razreda da se ažurira izgled
+    showToast(e.target.checked ? '4.PRO razred aktiviran!' : '4.PRO razred deaktiviran!', 'success');
+  });
+
+  list.appendChild(proCard);
+  const total = razredeConfig.reduce((s, r) => s + r.count, 0) + (is4ProEnabled ? 1 : 0);
   document.getElementById('razredi-total').textContent = `Ukupno odjeljenja: ${total}`;
 }
 
@@ -530,9 +485,8 @@ function renderStatistika() {
   const container = document.getElementById('statistika-container');
   container.innerHTML = '';
 
-  // Count hours per razred per smjena
-  const razredHours = {}; // {razredId: {A: n, B: n}}
-  const profesorHours = {}; // {profesorId: {A: n, B: n}}
+  const razredHours = {};
+  const profesorHours = {};
 
   SMJENE.forEach(smjena => {
     const smjenaData = schedule[smjena] || {};
@@ -554,7 +508,6 @@ function renderStatistika() {
     });
   });
 
-  // Razredi table
   const allRazredi = getAllRazredi();
   const secR = document.createElement('div');
   secR.className = 'stats-section';
@@ -570,7 +523,7 @@ function renderStatistika() {
     const a = razredHours[rId]?.A || 0;
     const b = razredHours[rId]?.B || 0;
     const total = a + b;
-    if (total === 0 && Object.keys(razredHours).length === 0) return;
+    
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><strong>${rId}</strong></td>
@@ -592,7 +545,6 @@ function renderStatistika() {
   secR.appendChild(tableR);
   container.appendChild(secR);
 
-  // Profesori table
   const secP = document.createElement('div');
   secP.className = 'stats-section';
   secP.innerHTML = `<h2>Sati po profesoru (tjedno)</h2>`;
@@ -626,52 +578,45 @@ function renderStatistika() {
     `;
     tbodyP.appendChild(tr);
   });
-  if (tbodyP.children.length === 0) {
-    tbodyP.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:20px;">Nema profesora.</td></tr>';
-  }
   tableP.appendChild(tbodyP);
   secP.appendChild(tableP);
   container.appendChild(secP);
 }
 
-// ── UTILS ─────────────────────────────────────────
-function escHtml(str) {
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// Funkcija koja briše sve unose iz rasporeda
 function obrisiCijeliRaspored() {
-  schedule = {};       // Potpuno praznimo raspored prema tvojoj varijabli
-  save();              // Spremamo prazno stanje u localStorage
-  renderSchedule();    // Ponovno iscrtavamo tvoju tablicu
+  isprazniSchedule();
+  save();
+  renderSchedule();
   showToast('Raspored je uspješno očišćen!', 'success');
-  closeConfirm();      // Zatvaramo potvrdni prozor
+  closeConfirm();
 }
-
-// Povezivanje gumba "Obriši sve" s tvojim ugrađenim potvrdnim prozorom
-// Možeš ovo ostaviti na samom dnu datoteke
-document.getElementById('btn-obrisi-sve').addEventListener('click', () => {
-  document.getElementById('confirm-title').textContent = 'Obriši cijeli raspored';
-  document.getElementById('confirm-message').textContent = 'Ova akcija će trajno obrisati sve upisane sate u tablici i morat ćete krenuti ispočetka.';
-  confirmCallback = obrisiCijeliRaspored;
-  document.getElementById('confirm-overlay').classList.remove('hidden');
-});
 
 // ── EVENT LISTENERS ───────────────────────────────
 function initEvents() {
-  // Nav
+  // Navigacija: Klik na gumb sada samo mijenja URL Hash
   document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', () => setPage(item.dataset.page));
+    item.addEventListener('click', () => {
+      window.location.hash = `#${item.dataset.page}`;
+    });
   });
 
-  // Schedule modal
+  // Slušaj promjene u URL-u (ako korisnik klikne Back/Forward ili ručno promijeni #)
+  window.addEventListener('hashchange', handleRouting);
+
+  // --- Ostatak tvojih modal i confirm evenata ostaje ISTI ---
+  document.getElementById('btn-obrisi-sve').addEventListener('click', () => {
+    document.getElementById('confirm-title').textContent = 'Obriši cijeli raspored';
+    document.getElementById('confirm-message').textContent = 'Ova akcija će trajno obrisati sve upisane sate u tablici i morat ćete krenuti ispočetka.';
+    confirmCallback = obrisiCijeliRaspored;
+    document.getElementById('confirm-overlay').classList.remove('hidden');
+  });
+
   document.getElementById('btn-modal-close').addEventListener('click', closeModal);
   document.getElementById('modal-overlay').addEventListener('click', (e) => {
     if (e.target === document.getElementById('modal-overlay')) closeModal();
   });
   document.getElementById('btn-modal-add').addEventListener('click', addToSchedule);
 
-  // Profesor modal
   document.getElementById('btn-add-profesor').addEventListener('click', () => openProfesorModal(null));
   document.getElementById('btn-modal-profesor-close').addEventListener('click', closeProfesorModal);
   document.getElementById('modal-profesor-overlay').addEventListener('click', (e) => {
@@ -685,7 +630,6 @@ function initEvents() {
     document.getElementById('modal-profesor-color-hex').textContent = e.target.value;
   });
 
-  // Confirm dialog
   document.getElementById('btn-confirm-close').addEventListener('click', closeConfirm);
   document.getElementById('btn-confirm-cancel').addEventListener('click', closeConfirm);
   document.getElementById('btn-confirm-ok').addEventListener('click', () => {
@@ -695,17 +639,12 @@ function initEvents() {
     if (e.target === document.getElementById('confirm-overlay')) closeConfirm();
   });
 
-  // Escape key closes any open modal
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      closeModal();
-      closeProfesorModal();
-      closeConfirm();
-    }
+    if (e.key === 'Escape') { closeModal(); closeProfesorModal(); closeConfirm(); }
   });
 }
 
 // ── INIT ──────────────────────────────────────────
 load();
 initEvents();
-renderSchedule();
+handleRouting();
