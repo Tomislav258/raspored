@@ -1,7 +1,9 @@
-import { JUTARNJI, POPODNEVNI, DAYS, SMJENE, MAX_PER_CELL, MAX_HOURS_WEEK } from './script/config.js';
+import { JUTARNJI, POPODNEVNI, DAYS, SMJENE, MAX_PER_CELL, MAX_HOURS_WEEK, GRADE_TIME_RULES } from './script/config.js';
 import { 
   profesori, razredeConfig, schedule, isprazniSchedule, postaviProfesore,
-  load, save, uid, showToast, is4ProEnabled, toggle4Pro 
+  load, save, uid, showToast, is4ProEnabled, toggle4Pro,
+  versions, currentVersionId, getCurrentVersion, setCurrentVersion, createNewVersion, deleteVersion, renameVersion,
+  getProfessorRazrediForVersion, setProfessorRazrediForVersion
 } from './script/state.js';
 
 // Varijabla za potvrdu dijaloga ostaje lokalna ovdje gdje se izvršavaju eventi
@@ -26,7 +28,9 @@ function getAllRazredi() {
 
 function getWeeklyHoursForRazred(smjena, razredId) {
   let count = 0;
-  const smjenaData = schedule[smjena] || {};
+  const currentVersion = getCurrentVersion();
+  const scheduleToUse = currentVersion ? currentVersion.schedule : schedule;
+  const smjenaData = scheduleToUse[smjena] || {};
   DAYS.forEach(({ key }) => {
     const dayData = smjenaData[key] || {};
     ['j', 'p'].forEach(type => {
@@ -44,14 +48,33 @@ function getWeeklyHoursForRazred(smjena, razredId) {
 function getCellKey(type, num) { return `${type}${num}`; }
 
 function getCell(smjena, day, cellKey) {
-  if (!schedule[smjena]) schedule[smjena] = {};
-  if (!schedule[smjena][day]) schedule[smjena][day] = {};
-  if (!schedule[smjena][day][cellKey]) schedule[smjena][day][cellKey] = [];
-  return schedule[smjena][day][cellKey];
+  const currentVersion = getCurrentVersion();
+  const scheduleToUse = currentVersion ? currentVersion.schedule : schedule;
+  if (!scheduleToUse[smjena]) scheduleToUse[smjena] = {};
+  if (!scheduleToUse[smjena][day]) scheduleToUse[smjena][day] = {};
+  if (!scheduleToUse[smjena][day][cellKey]) scheduleToUse[smjena][day][cellKey] = [];
+  return scheduleToUse[smjena][day][cellKey];
 }
 
 function escHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Provjeri je li razred dozvoljeno postaviti u određeno vrijeme
+function isRazredAllowedInTimeSlot(razredId, smjena, type) {
+  // Izvuci redni broj razreda (npr. "5A" -> 5, "4.PRO" -> null)
+  const gradeMatch = razredId.match(/^(\d+)/);
+  if (!gradeMatch) return true; // 4.PRO i drugi specijalni razredi - dozvoljeni svugdje
+  
+  const grade = parseInt(gradeMatch[1]);
+  
+  // Ako nema posebnog pravila, razred je dozvoljeno postaviti svugdje
+  if (!GRADE_TIME_RULES[grade]) return true;
+  
+  const allowedTypes = GRADE_TIME_RULES[grade][smjena];
+  if (!allowedTypes) return true;
+  
+  return allowedTypes.includes(type);
 }
 
 // ── NAVIGATION ───────────────────────────────────
@@ -88,6 +111,16 @@ function handleRouting() {
 function renderSchedule() {
   const container = document.getElementById('schedule-container');
   container.innerHTML = '';
+  
+  const currentVersion = getCurrentVersion();
+  const versionName = currentVersion ? currentVersion.name : 'Nepoznata verzija';
+  
+  // Ažuriraj heading s nazivom verzije
+  const heading = document.querySelector('.page-header h1');
+  if (heading) {
+    heading.innerHTML = `Tjedni Raspored <span style="font-size: 14px; font-weight: 500; color: #64748b; margin-left: 8px;">(${escHtml(versionName)})</span>`;
+  }
+  
   SMJENE.forEach(smjena => {
     const block = document.createElement('div');
     block.className = 'smjena-block';
@@ -221,18 +254,43 @@ function openModal(smjena, day, type, num) {
   razredList.innerHTML = '';
   const allRazredi = getAllRazredi();
 
-  allRazredi.forEach(rId => {
+  // Prvo procijeni status svakog razreda
+  const razrediWithStatus = allRazredi.map(rId => {
     const alreadyInCell = entries.some(e => e.razredId === rId);
     const weeklyHours = getWeeklyHoursForRazred(smjena, rId);
     const atLimit = weeklyHours >= MAX_HOURS_WEEK;
+    const isAllowed = isRazredAllowedInTimeSlot(rId, smjena, type);
+    const isEnabled = !atLimit && !alreadyInCell && isAllowed;
+    
+    return { rId, alreadyInCell, weeklyHours, atLimit, isAllowed, isEnabled };
+  });
+
+  // Sortiraj: omogućeni razredi prvi, zatim disabled
+  razrediWithStatus.sort((a, b) => b.isEnabled - a.isEnabled);
+
+  razrediWithStatus.forEach(({ rId, alreadyInCell, weeklyHours, atLimit, isAllowed, isEnabled }) => {
     const div = document.createElement('div');
-    div.className = 'razred-option' + (atLimit ? ' disabled' : '');
-    div.textContent = rId + (atLimit ? ` (${weeklyHours}/${MAX_HOURS_WEEK} sati)` : '');
+    div.className = 'razred-option' + (!isEnabled ? ' disabled' : '');
+    
+    let statusText = '';
     if (alreadyInCell) {
-      div.classList.add('disabled');
-      div.textContent = rId + ' (već dodan)';
+      statusText = ' (već dodan)';
+    } else if (atLimit) {
+      statusText = ` (${weeklyHours}/${MAX_HOURS_WEEK} sati)`;
+    } else if (!isAllowed) {
+      const gradeMatch = rId.match(/^(\d+)/);
+      if (gradeMatch) {
+        const grade = parseInt(gradeMatch[1]);
+        if (GRADE_TIME_RULES[grade] && GRADE_TIME_RULES[grade][smjena]) {
+          const timeDesc = GRADE_TIME_RULES[grade][smjena].includes('j') ? 'samo ujutro' : 'samo popodne';
+          statusText = ` (${timeDesc})`;
+        }
+      }
     }
-    if (!atLimit && !alreadyInCell) {
+    
+    div.textContent = rId + statusText;
+    
+    if (isEnabled) {
       div.addEventListener('click', () => {
         document.querySelectorAll('.razred-option').forEach(o => o.classList.remove('selected'));
         div.classList.add('selected');
@@ -299,19 +357,36 @@ function addToSchedule() {
   if (entries.length >= MAX_PER_CELL) { showToast(`Maksimalno ${MAX_PER_CELL} razreda po slotu!`); return; }
   if (entries.some(e => e.razredId === selectedRazred)) { showToast('Ovaj razred je već u ovom slotu!'); return; }
   
+  // Provjera vremenske ograničenja
+  if (!isRazredAllowedInTimeSlot(selectedRazred, smjena, type)) {
+    const gradeMatch = selectedRazred.match(/^(\d+)/);
+    if (gradeMatch) {
+      const grade = parseInt(gradeMatch[1]);
+      if (GRADE_TIME_RULES[grade] && GRADE_TIME_RULES[grade][smjena]) {
+        const timeDesc = GRADE_TIME_RULES[grade][smjena].includes('j') ? 'samo ujutro' : 'samo popodne';
+        showToast(`${selectedRazred} može imati nastavu ${timeDesc} u ${smjena} smjeni!`);
+      }
+    }
+    return;
+  }
+  
   const weekly = getWeeklyHoursForRazred(smjena, selectedRazred);
   if (weekly >= MAX_HOURS_WEEK) { showToast(`${selectedRazred} već ima ${MAX_HOURS_WEEK} sata tjedno u ${smjena} smjeni!`); return; }
+  
+  // --- ISPRAVLJENI DIO ZA PROVJERU PROFESORA ---
   let profesorZauzet = false;
   
-  SMJENE.forEach(smn => {
-    const smjenaData = schedule[smn] || {};
-    const dayData = smjenaData[day] || {};
-    const trenutniSlotEntries = dayData[cellKey] || [];
-    
-    if (trenutniSlotEntries.some(e => e.profesorId === profesorId)) {
-      profesorZauzet = true;
-    }
-  });
+  // Gledamo samo podatke za TRENUTNU smjenu (npr. samo A ili samo B)
+  const currentVersion = getCurrentVersion();
+  const scheduleToUse = currentVersion ? currentVersion.schedule : schedule;
+  const smjenaData = scheduleToUse[smjena] || {}; 
+  const dayData = smjenaData[day] || {};
+  const trenutniSlotEntries = dayData[cellKey] || [];
+  
+  if (trenutniSlotEntries.some(e => e.profesorId === profesorId)) {
+    profesorZauzet = true;
+  }
+  // ----------------------------------------------
 
   if (profesorZauzet) {
     const prof = getProfesor(profesorId);
@@ -488,8 +563,11 @@ function renderStatistika() {
   const razredHours = {};
   const profesorHours = {};
 
+  const currentVersion = getCurrentVersion();
+  const scheduleToUse = currentVersion ? currentVersion.schedule : schedule;
+
   SMJENE.forEach(smjena => {
-    const smjenaData = schedule[smjena] || {};
+    const smjenaData = scheduleToUse[smjena] || {};
     DAYS.forEach(({ key }) => {
       const dayData = smjenaData[key] || {};
       ['j', 'p'].forEach(type => {
@@ -584,11 +662,117 @@ function renderStatistika() {
 }
 
 function obrisiCijeliRaspored() {
-  isprazniSchedule();
+  const currentVersion = getCurrentVersion();
+  if (currentVersion) {
+    for (let kljuc in currentVersion.schedule) {
+      delete currentVersion.schedule[kljuc];
+    }
+  }
   save();
   renderSchedule();
   showToast('Raspored je uspješno očišćen!', 'success');
   closeConfirm();
+}
+
+// ── VERZIJE ─────────────────────────────────
+function openVerzijModal() {
+  renderVerzije();
+  document.getElementById('modal-verzije-overlay').classList.remove('hidden');
+}
+
+function closeVerzijModal() {
+  document.getElementById('modal-verzije-overlay').classList.add('hidden');
+}
+
+function renderVerzije() {
+  const list = document.getElementById('verzije-list');
+  list.innerHTML = '';
+  
+  versions.forEach(v => {
+    const isActive = v.id === currentVersionId;
+    const card = document.createElement('div');
+    card.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      background: ${isActive ? '#eff6ff' : '#f8fafc'};
+      border: 1px solid ${isActive ? '#bfdbfe' : '#e2e8f0'};
+      transition: all 0.15s;
+    `;
+    card.innerHTML = `
+      <div style="flex: 1;">
+        <div style="font-weight: 600; color: #1e293b; font-size: 14px;">${escHtml(v.name)}</div>
+        <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">Sati: ${Object.values(v.schedule).flat().flat().length} unosa</div>
+      </div>
+      ${isActive ? '<span style="color: #2563eb; font-weight: 700; font-size: 12px;">AKTIVNA</span>' : ''}
+      <button class="btn-icon" data-verzija-edit="${v.id}" title="Uredi" style="margin-left: 8px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+      ${versions.length > 1 ? `<button class="btn-icon danger" data-verzija-del="${v.id}" title="Obriši"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14a2 2 0 0 1-2,2H8a2 2 0 0 1-2-2L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/><path d="M9,6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1,1v2"/></svg></button>` : ''}
+    `;
+    
+    if (!isActive) {
+      card.addEventListener('click', (e) => {
+        if (!e.target.closest('button')) {
+          setCurrentVersion(v.id);
+          renderSchedule();
+          renderVerzije();
+          closeVerzijModal();
+          showToast(`Verzija "${v.name}" je sada aktivna`, 'success');
+        }
+      });
+    }
+    
+    const editBtn = card.querySelector(`[data-verzija-edit="${v.id}"]`);
+    if (editBtn) {
+      editBtn.addEventListener('click', () => openRenameVerzijModal(v.id, v.name));
+    }
+    
+    const delBtn = card.querySelector(`[data-verzija-del="${v.id}"]`);
+    if (delBtn) {
+      delBtn.addEventListener('click', () => confirmDeleteVersion(v.id, v.name));
+    }
+    
+    list.appendChild(card);
+  });
+}
+
+function openRenameVerzijModal(versionId, currentName) {
+  const newName = prompt('Novo ime verzije:', currentName);
+  if (newName && newName.trim()) {
+    renameVersion(versionId, newName.trim());
+    renderVerzije();
+    showToast('Verzija preimenovana!', 'success');
+  }
+}
+
+function confirmDeleteVersion(versionId, versionName) {
+  document.getElementById('confirm-title').textContent = 'Obriši verziju';
+  document.getElementById('confirm-message').textContent = `Sigurno želite obrisati verziju "${versionName}"? Ova akcija se ne može poništiti.`;
+  confirmCallback = () => {
+    if (deleteVersion(versionId)) {
+      renderSchedule();
+      renderVerzije();
+      closeVerzijModal();
+      showToast('Verzija obrisana!', 'success');
+      closeConfirm();
+    } else {
+      showToast('Nije moguće obrisati jedinu verziju!', 'error');
+    }
+  };
+  document.getElementById('confirm-overlay').classList.remove('hidden');
+}
+
+function createAndSelectNewVersion() {
+  const name = prompt('Ime nove verzije:');
+  if (name && name.trim()) {
+    createNewVersion(name.trim());
+    renderSchedule();
+    closeVerzijModal();
+    showToast('Nova verzija kreirana!', 'success');
+  }
 }
 
 // ── EVENT LISTENERS ───────────────────────────────
@@ -602,6 +786,14 @@ function initEvents() {
 
   // Slušaj promjene u URL-u (ako korisnik klikne Back/Forward ili ručno promijeni #)
   window.addEventListener('hashchange', handleRouting);
+
+  // Verzije
+  document.getElementById('btn-verzije').addEventListener('click', openVerzijModal);
+  document.getElementById('btn-modal-verzije-close').addEventListener('click', closeVerzijModal);
+  document.getElementById('modal-verzije-overlay').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('modal-verzije-overlay')) closeVerzijModal();
+  });
+  document.getElementById('btn-nova-verzija').addEventListener('click', createAndSelectNewVersion);
 
   // --- Ostatak tvojih modal i confirm evenata ostaje ISTI ---
   document.getElementById('btn-obrisi-sve').addEventListener('click', () => {
