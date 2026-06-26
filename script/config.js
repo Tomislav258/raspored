@@ -46,3 +46,18 @@ export const DEFAULT_RAZREDI_CONFIG = [
   { grade: 7, count: 4 },
   { grade: 8, count: 2 },
 ];
+
+// Pravila za satove po razredu i smjeni
+// Format: { grade: broj razreda, allowedInShift: { 'A': ['j', 'p'], 'B': ['j', 'p'] } }
+// 'j' = jutarnji, 'p' = popodnevni
+export const GRADE_TIME_RULES = {
+  5: {
+    'A': ['j'], // 5. razred A smjena: samo jutarnji
+    'B': ['p']  // 5. razred B smjena: samo popodnevni
+  },
+  6: {
+    'A': ['p'], // 6. razred A smjena: samo popodnevni
+    'B': ['j']  // 6. razred B smjena: samo jutarnji
+  }
+  // Ostali razredi mogu imati oba vremenske perioda po defaultu
+};
