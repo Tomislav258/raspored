@@ -18,7 +18,7 @@ export const POPODNEVNI = [
 ];
 
 export const DAYS = [
-  { key: 'Po', name: 'Ponedjeljak' },
+  { key: 'Pon', name: 'Ponedjeljak' },
   { key: 'Ut', name: 'Utorak' },
   { key: 'Sr', name: 'Srijeda' },
   { key: 'Če', name: 'Četvrtak' },
@@ -28,6 +28,7 @@ export const DAYS = [
 export const SMJENE = ['A', 'B'];
 export const MAX_PER_CELL = 3;
 export const MAX_HOURS_WEEK = 2;
+export const DOPUNSKA_MAX_HOURS = 1;
 
 export const DEFAULT_PROFESORI = [
   { id: 'p1', name: 'Ana', color: '#ef4444' },
