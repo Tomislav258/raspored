@@ -1,7 +1,7 @@
-import { JUTARNJI, POPODNEVNI, DAYS, SMJENE, MAX_PER_CELL, MAX_HOURS_WEEK, GRADE_TIME_RULES } from './script/config.js';
+import { JUTARNJI, POPODNEVNI, DAYS, SMJENE, MAX_PER_CELL, MAX_HOURS_WEEK, GRADE_TIME_RULES, DOPUNSKA_MAX_HOURS } from './script/config.js';
 import { 
   profesori, razredeConfig, schedule, isprazniSchedule, postaviProfesore,
-  load, save, uid, showToast, is4ProEnabled, toggle4Pro,
+  load, save, uid, showToast, is4ProEnabled, is5DopEnabled, is6DopEnabled, toggle4Pro, toggle5Dop, toggle6Dop,
   versions, currentVersionId, getCurrentVersion, setCurrentVersion, createNewVersion, deleteVersion, renameVersion,
   getProfessorRazrediForVersion, setProfessorRazrediForVersion
 } from './script/state.js';
@@ -19,6 +19,12 @@ function getAllRazredi() {
   if (is4ProEnabled) {
     list.push('4.PRO');
   }
+  if (is5DopEnabled) {
+    list.push('5.DOP');
+  }
+  if (is6DopEnabled) {
+    list.push('6.DOP');
+  }
   razredeConfig.forEach(({ grade, count }) => {
     for (let i = 0; i < count; i++) {
       const letter = String.fromCharCode(65 + i);
@@ -26,6 +32,24 @@ function getAllRazredi() {
     }
   });
   return list;
+}
+
+function getMaxWeeklyHoursForRazred(razredId) {
+  return razredId === '5.DOP' || razredId === '6.DOP' ? DOPUNSKA_MAX_HOURS : MAX_HOURS_WEEK;
+}
+
+function getRazredSortKey(razredId) {
+  const gradeMatch = razredId.match(/^(\d+)/);
+  const grade = gradeMatch ? parseInt(gradeMatch[1], 10) : 99;
+  let suffix = '';
+  if (/^\d+[A-Z]$/.test(razredId)) {
+    suffix = razredId.slice(-1);
+  } else {
+    const parts = razredId.split('.');
+    suffix = parts.length > 1 ? parts[1] : razredId.replace(/^\d+/, '');
+  }
+  const suffixOrder = /^[A-Z]$/.test(suffix) ? '1' : '2';
+  return `${grade.toString().padStart(2, '0')}_${suffixOrder}_${suffix}`;
 }
 
 function getWeeklyHoursForRazred(smjena, razredId) {
@@ -90,9 +114,12 @@ function escHtml(str) {
 
 // Provjeri je li razred dozvoljeno postaviti u određeno vrijeme
 function isRazredAllowedInTimeSlot(razredId, smjena, type) {
+  // 4.PRO, 5.DOP i 6.DOP su posebni razredi i ne podležu standardnim vremenskim pravilima.
+  if (/^\d+\.(PRO|DOP)$/.test(razredId)) return true;
+
   // Izvuci redni broj razreda (npr. "5A" -> 5, "4.PRO" -> null)
   const gradeMatch = razredId.match(/^(\d+)/);
-  if (!gradeMatch) return true; // 4.PRO i drugi specijalni razredi - dozvoljeni svugdje
+  if (!gradeMatch) return true; // drugi specijalni razredi - dozvoljeni svugdje
   
   const grade = parseInt(gradeMatch[1]);
   
@@ -280,23 +307,28 @@ function openModal(smjena, day, type, num) {
 
   const razredList = document.getElementById('modal-razred-list');
   razredList.innerHTML = '';
-  const allRazredi = getAllRazredi();
+  const allRazredi = getAllRazredi().sort((a, b) => {
+    const keyA = getRazredSortKey(a);
+    const keyB = getRazredSortKey(b);
+    return keyA.localeCompare(keyB, undefined, { numeric: true, sensitivity: 'base' });
+  });
 
   // Prvo procijeni status svakog razreda
   const razrediWithStatus = allRazredi.map(rId => {
     const alreadyInCell = entries.some(e => e.razredId === rId);
     const weeklyHours = getWeeklyHoursForRazred(smjena, rId);
-    const atLimit = weeklyHours >= MAX_HOURS_WEEK;
+    const maxHours = getMaxWeeklyHoursForRazred(rId);
+    const atLimit = weeklyHours >= maxHours;
     const isAllowed = isRazredAllowedInTimeSlot(rId, smjena, type);
     const isEnabled = !atLimit && !alreadyInCell && isAllowed;
     
-    return { rId, alreadyInCell, weeklyHours, atLimit, isAllowed, isEnabled };
+    return { rId, alreadyInCell, weeklyHours, maxHours, atLimit, isAllowed, isEnabled };
   });
 
   // Sortiraj: omogućeni razredi prvi, zatim disabled
   razrediWithStatus.sort((a, b) => b.isEnabled - a.isEnabled);
 
-  razrediWithStatus.forEach(({ rId, alreadyInCell, weeklyHours, atLimit, isAllowed, isEnabled }) => {
+  razrediWithStatus.forEach(({ rId, alreadyInCell, weeklyHours, maxHours, atLimit, isAllowed, isEnabled }) => {
     const div = document.createElement('div');
     div.className = 'razred-option' + (!isEnabled ? ' disabled' : '');
     
@@ -304,7 +336,7 @@ function openModal(smjena, day, type, num) {
     if (alreadyInCell) {
       statusText = ' (već dodan)';
     } else if (atLimit) {
-      statusText = ` (${weeklyHours}/${MAX_HOURS_WEEK} sati)`;
+      statusText = ` (${weeklyHours}/${maxHours} sati)`;
     } else if (!isAllowed) {
       const gradeMatch = rId.match(/^(\d+)/);
       if (gradeMatch) {
@@ -400,7 +432,8 @@ function addToSchedule() {
   }
   
   const weekly = getWeeklyHoursForRazred(smjena, selectedRazred);
-  if (weekly >= MAX_HOURS_WEEK) { showToast(`${selectedRazred} već ima ${MAX_HOURS_WEEK} sata tjedno u ${smjena} smjeni!`); return; }
+  const maxHours = getMaxWeeklyHoursForRazred(selectedRazred);
+  if (weekly >= maxHours) { showToast(`${selectedRazred} već ima ${maxHours} sata tjedno u ${smjena} smjeni!`); return; }
   
   // --- ISPRAVLJENI DIO ZA PROVJERU PROFESORA ---
   let profesorZauzet = false;
@@ -598,7 +631,64 @@ function renderRazredi() {
   });
 
   list.appendChild(proCard);
-  const total = razredeConfig.reduce((s, r) => s + r.count, 0) + (is4ProEnabled ? 1 : 0);
+
+  const dop5Card = document.createElement('div');
+  dop5Card.className = 'razred-card';
+  dop5Card.style.borderLeft = '4px solid #f97316';
+  dop5Card.innerHTML = `
+    <div class="razred-badge" style="background:#ffedd5; color:#c2410b;">DOP</div>
+    <div class="razred-info">
+      <div class="razred-name">5.DOP razred</div>
+      <div class="razred-odjeljenja">
+        <span class="odjeljenje-chip" style="${is5DopEnabled ? '' : 'background:#e2e8f0; color:#94a3b8; text-line-through'}">
+          5.DOP (${is5DopEnabled ? 'Uključen' : 'Isključen'})
+        </span>
+      </div>
+    </div>
+    <div class="razred-counter">
+      <label class="switch" style="position:relative; display:inline-block; width:44px; height:24px;">
+        <input type="checkbox" id="toggle-5dop" ${is5DopEnabled ? 'checked' : ''} style="opacity:0; width:0; height:0;">
+        <span class="slider" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${is5DopEnabled ? '#f97316' : '#cbd5e1'}; transition:.3s; border-radius:24px;"></span>
+      </label>
+    </div>
+  `;
+  dop5Card.querySelector('#toggle-5dop').addEventListener('change', (e) => {
+    toggle5Dop(e.target.checked);
+    save();
+    renderRazredi();
+    showToast(e.target.checked ? '5.DOP razred aktiviran!' : '5.DOP razred deaktiviran!', 'success');
+  });
+  list.appendChild(dop5Card);
+
+  const dop6Card = document.createElement('div');
+  dop6Card.className = 'razred-card';
+  dop6Card.style.borderLeft = '4px solid #2563eb';
+  dop6Card.innerHTML = `
+    <div class="razred-badge" style="background:#dbeafe; color:#1d4ed8;">DOP</div>
+    <div class="razred-info">
+      <div class="razred-name">6.DOP razred</div>
+      <div class="razred-odjeljenja">
+        <span class="odjeljenje-chip" style="${is6DopEnabled ? '' : 'background:#e2e8f0; color:#94a3b8; text-line-through'}">
+          6.DOP (${is6DopEnabled ? 'Uključen' : 'Isključen'})
+        </span>
+      </div>
+    </div>
+    <div class="razred-counter">
+      <label class="switch" style="position:relative; display:inline-block; width:44px; height:24px;">
+        <input type="checkbox" id="toggle-6dop" ${is6DopEnabled ? 'checked' : ''} style="opacity:0; width:0; height:0;">
+        <span class="slider" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${is6DopEnabled ? '#2563eb' : '#cbd5e1'}; transition:.3s; border-radius:24px;"></span>
+      </label>
+    </div>
+  `;
+  dop6Card.querySelector('#toggle-6dop').addEventListener('change', (e) => {
+    toggle6Dop(e.target.checked);
+    save();
+    renderRazredi();
+    showToast(e.target.checked ? '6.DOP razred aktiviran!' : '6.DOP razred deaktiviran!', 'success');
+  });
+  list.appendChild(dop6Card);
+
+  const total = razredeConfig.reduce((s, r) => s + r.count, 0) + (is4ProEnabled ? 1 : 0) + (is5DopEnabled ? 1 : 0) + (is6DopEnabled ? 1 : 0);
   document.getElementById('razredi-total').textContent = `Ukupno odjeljenja: ${total}`;
 }
 
