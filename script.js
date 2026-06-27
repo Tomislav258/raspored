@@ -8,6 +8,8 @@ import {
 
 // Varijabla za potvrdu dijaloga ostaje lokalna ovdje gdje se izvršavaju eventi
 let confirmCallback = null;
+const AUTO_ASSIGN_PROFESSOR_BY_CLASS = true;
+let currentProfesorAssignedRazredi = [];
 
 // ── HELPERS (ovisni o konfiguraciji) ─────────────────
 function getProfesor(id) { return profesori.find(p => p.id === id); }
@@ -54,6 +56,32 @@ function getCell(smjena, day, cellKey) {
   if (!scheduleToUse[smjena][day]) scheduleToUse[smjena][day] = {};
   if (!scheduleToUse[smjena][day][cellKey]) scheduleToUse[smjena][day][cellKey] = [];
   return scheduleToUse[smjena][day][cellKey];
+}
+
+function getAssignedProfessorForRazred(razredId) {
+  const currentVersion = getCurrentVersion();
+  if (!currentVersion || !currentVersion.profesorRazredi) return null;
+  for (const profesorId in currentVersion.profesorRazredi) {
+    if (currentVersion.profesorRazredi[profesorId]?.includes(razredId)) {
+      return profesorId;
+    }
+  }
+  return null;
+}
+
+function isRazredAssignedToOtherProfessor(razredId, profesorId) {
+  const assignedProfesorId = getAssignedProfessorForRazred(razredId);
+  return assignedProfesorId && assignedProfesorId !== profesorId;
+}
+
+function selectProfessorForRazred(razredId) {
+  if (!AUTO_ASSIGN_PROFESSOR_BY_CLASS) return;
+  const profesorId = getAssignedProfessorForRazred(razredId);
+  if (!profesorId) return;
+  const selectEl = document.getElementById('modal-profesor-select');
+  if (!selectEl) return;
+  const optionFound = Array.from(selectEl.options).some(o => o.value === profesorId);
+  if (optionFound) selectEl.value = profesorId;
 }
 
 function escHtml(str) {
@@ -295,6 +323,7 @@ function openModal(smjena, day, type, num) {
         document.querySelectorAll('.razred-option').forEach(o => o.classList.remove('selected'));
         div.classList.add('selected');
         selectedRazred = rId;
+        selectProfessorForRazred(rId);
       });
     }
     razredList.appendChild(div);
@@ -394,11 +423,12 @@ function addToSchedule() {
     return;
   }
 
-  entries.push({ razredId: selectedRazred, profesorId });
+  const addedRazred = selectedRazred;
+  entries.push({ razredId: addedRazred, profesorId });
   save();
   renderSchedule();
-  openModal(smjena, day, type, num);
-  showToast(`${selectedRazred} dodan u raspored!`, 'success');
+  closeModal();
+  showToast(`${addedRazred} dodan u raspored!`, 'success');
 }
 
 // ── RENDER PROFESORI ──────────────────────────────
@@ -410,6 +440,7 @@ function renderProfesori() {
     return;
   }
   profesori.forEach(p => {
+    const assignedRazredi = getProfessorRazrediForVersion(currentVersionId, p.id);
     const card = document.createElement('div');
     card.className = 'profesor-card';
     card.innerHTML = `
@@ -417,6 +448,7 @@ function renderProfesori() {
       <div class="profesor-info">
         <div class="profesor-name">${escHtml(p.name)}</div>
         <div class="profesor-color-code">${p.color}</div>
+        <div class="profesor-label">${assignedRazredi.length > 0 ? escHtml(assignedRazredi.join(', ')) : 'Nema dodijeljenih razreda'}</div>
       </div>
       <div class="profesor-actions">
         <button class="btn-icon" data-edit="${p.id}" title="Uredi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
@@ -445,6 +477,7 @@ function openProfesorModal(id = null) {
     titleEl.textContent = 'Novi profesor';
     nameEl.value = ''; colorEl.value = '#3b82f6'; hexEl.textContent = '#3b82f6';
   }
+  renderProfesorAssignedClasses(id);
   document.getElementById('modal-profesor-overlay').classList.remove('hidden');
   setTimeout(() => nameEl.focus(), 60);
 }
@@ -458,12 +491,21 @@ function saveProfesor() {
   const name = document.getElementById('modal-profesor-name').value.trim();
   const color = document.getElementById('modal-profesor-color').value;
   if (!name) { showToast('Unesite ime profesora!'); return; }
+
+  const assignedRazredi = Array.from(document.querySelectorAll('#modal-profesor-classes .assigned-class-option.selected'))
+    .map(el => el.textContent);
+
+  let profesorId;
   if (editingProfesorId) {
+    profesorId = editingProfesorId;
     const p = getProfesor(editingProfesorId);
     p.name = name; p.color = color;
   } else {
-    profesori.push({ id: uid(), name, color });
+    profesorId = uid();
+    profesori.push({ id: profesorId, name, color });
   }
+
+  setProfessorRazrediForVersion(currentVersionId, profesorId, assignedRazredi);
   save();
   closeProfesorModal();
   renderProfesori();
@@ -476,6 +518,11 @@ function confirmDeleteProfesor(id) {
   document.getElementById('confirm-message').textContent = `Sigurno želite obrisati profesora "${p.name}"? Unosi u rasporedu s ovim profesorom ostat će bez profesora.`;
   confirmCallback = () => {
     postaviProfesore(profesori.filter(x => x.id !== id));
+    versions.forEach(v => {
+      if (v.profesorRazredi && v.profesorRazredi[id]) {
+        delete v.profesorRazredi[id];
+      }
+    });
     save();
     closeConfirm();
     renderProfesori();
@@ -556,6 +603,27 @@ function renderRazredi() {
 }
 
 // ── RENDER STATISTIKA ─────────────────────────────
+function renderProfesorAssignedClasses(profesorId) {
+  const container = document.getElementById('modal-profesor-classes');
+  container.innerHTML = '';
+  const assignedRazredi = profesorId ? getProfessorRazrediForVersion(currentVersionId, profesorId) : [];
+  getAllRazredi().forEach(rId => {
+    const assignedToOther = isRazredAssignedToOtherProfessor(rId, profesorId);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'assigned-class-option' + (assignedRazredi.includes(rId) ? ' selected' : '') + (assignedToOther ? ' disabled' : '');
+    button.textContent = rId;
+    button.disabled = assignedToOther;
+    if (assignedToOther) {
+      const assignedProfesor = getProfesor(getAssignedProfessorForRazred(rId));
+      button.title = `Ovaj razred je već dodijeljen ${assignedProfesor ? assignedProfesor.name : 'drugom profesoru'}`;
+    } else {
+      button.addEventListener('click', () => button.classList.toggle('selected'));
+    }
+    container.appendChild(button);
+  });
+}
+
 function renderStatistika() {
   const container = document.getElementById('statistika-container');
   container.innerHTML = '';
@@ -717,7 +785,7 @@ function renderVerzije() {
       card.addEventListener('click', (e) => {
         if (!e.target.closest('button')) {
           setCurrentVersion(v.id);
-          renderSchedule();
+          handleRouting();
           renderVerzije();
           closeVerzijModal();
           showToast(`Verzija "${v.name}" je sada aktivna`, 'success');
@@ -765,14 +833,62 @@ function confirmDeleteVersion(versionId, versionName) {
   document.getElementById('confirm-overlay').classList.remove('hidden');
 }
 
-function createAndSelectNewVersion() {
-  const name = prompt('Ime nove verzije:');
-  if (name && name.trim()) {
-    createNewVersion(name.trim());
-    renderSchedule();
-    closeVerzijModal();
-    showToast('Nova verzija kreirana!', 'success');
+function openNewVersionModal() {
+  closeVerzijModal();
+  const overlay = document.getElementById('modal-new-version-overlay');
+  document.getElementById('new-version-name').value = '';
+  const copyFromGroup = document.getElementById('new-version-copy-from-group');
+  const copyRadio = document.querySelector('input[name="new-version-type"][value="copy"]');
+  const emptyRadio = document.querySelector('input[name="new-version-type"][value="empty"]');
+  emptyRadio.checked = true;
+  copyRadio.checked = false;
+  copyFromGroup.style.display = 'none';
+  renderNewVersionSourceOptions();
+  overlay.classList.remove('hidden');
+  setTimeout(() => document.getElementById('new-version-name').focus(), 50);
+}
+
+function closeNewVersionModal() {
+  document.getElementById('modal-new-version-overlay').classList.add('hidden');
+}
+
+function renderNewVersionSourceOptions() {
+  const select = document.getElementById('new-version-copy-from');
+  select.innerHTML = '';
+  versions.forEach(v => {
+    const option = document.createElement('option');
+    option.value = v.id;
+    option.textContent = v.name;
+    select.appendChild(option);
+  });
+}
+
+function toggleNewVersionCopySource() {
+  const copyFromGroup = document.getElementById('new-version-copy-from-group');
+  const copyRadio = document.querySelector('input[name="new-version-type"][value="copy"]');
+  copyFromGroup.style.display = copyRadio.checked ? 'block' : 'none';
+}
+
+function createNewVersionFromForm() {
+  const name = document.getElementById('new-version-name').value.trim();
+  if (!name) {
+    showToast('Unesite ime novog rasporeda!');
+    return;
   }
+
+  const copySelected = document.querySelector('input[name="new-version-type"]:checked').value === 'copy';
+  const sourceVersionId = copySelected ? document.getElementById('new-version-copy-from').value : null;
+
+  if (copySelected && !sourceVersionId) {
+    showToast('Odaberite verziju za kopiranje!');
+    return;
+  }
+
+  createNewVersion(name, copySelected ? sourceVersionId : null);
+  renderSchedule();
+  renderVerzije();
+  closeNewVersionModal();
+  showToast('Nova verzija kreirana!', 'success');
 }
 
 // ── EVENT LISTENERS ───────────────────────────────
@@ -793,7 +909,14 @@ function initEvents() {
   document.getElementById('modal-verzije-overlay').addEventListener('click', (e) => {
     if (e.target === document.getElementById('modal-verzije-overlay')) closeVerzijModal();
   });
-  document.getElementById('btn-nova-verzija').addEventListener('click', createAndSelectNewVersion);
+  document.getElementById('btn-nova-verzija').addEventListener('click', openNewVersionModal);
+  document.getElementById('btn-modal-new-version-close').addEventListener('click', closeNewVersionModal);
+  document.getElementById('btn-modal-new-version-cancel').addEventListener('click', closeNewVersionModal);
+  document.getElementById('btn-modal-new-version-create').addEventListener('click', createNewVersionFromForm);
+  document.getElementById('modal-new-version-overlay').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('modal-new-version-overlay')) closeNewVersionModal();
+  });
+  document.querySelectorAll('input[name="new-version-type"]').forEach(el => el.addEventListener('change', toggleNewVersionCopySource));
 
   // --- Ostatak tvojih modal i confirm evenata ostaje ISTI ---
   document.getElementById('btn-obrisi-sve').addEventListener('click', () => {
@@ -832,7 +955,7 @@ function initEvents() {
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeModal(); closeProfesorModal(); closeConfirm(); }
+    if (e.key === 'Escape') { closeModal(); closeProfesorModal(); closeNewVersionModal(); closeConfirm(); }
   });
 }
 

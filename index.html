@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Raspored Nastave</title>
+  <title>Raspored nastave</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -45,7 +45,7 @@
         <p class="page-subtitle">Kliknite na slot za dodavanje ili uklanjanje razreda (max. 3 istovremeno)</p>
       </div>
       <div style="display: flex; gap: 12px;">
-        <button class="btn-secondary" id="btn-verzije">📋 Verzije</button>
+        <button class="btn-secondary" id="btn-verzije">📋 Verzije rasporeda</button>
         <button class="btn-danger" id="btn-obrisi-sve">Obriši sve</button>
       </div>
     </div>
@@ -130,6 +130,11 @@
           <span id="modal-profesor-color-hex">#3b82f6</span>
         </div>
       </div>
+      <div class="form-group">
+        <label>Dodijeljeni razredi</label>
+        <div class="assigned-classes-list" id="modal-profesor-classes"></div>
+        <p class="form-hint">Dodjele su specifične za aktivnu verziju rasporeda.</p>
+      </div>
       <button class="btn-primary btn-full" id="btn-modal-profesor-save">Spremi</button>
     </div>
   </div>
@@ -144,7 +149,44 @@
     </div>
     <div class="modal-body">
       <div id="verzije-list" style="max-height: 400px; overflow-y: auto;"></div>
-      <button class="btn-primary btn-full" id="btn-nova-verzija" style="margin-top: 12px;">+ Nova verzija</button>
+      <button class="btn-primary btn-full" id="btn-nova-verzija" style="margin-top: 12px;">+ Novi raspored</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Nova verzija -->
+<div id="modal-new-version-overlay" class="modal-overlay hidden">
+  <div class="modal modal-small">
+    <div class="modal-header">
+      <span class="modal-title-text">Nova verzija rasporeda</span>
+      <button class="modal-close" id="btn-modal-new-version-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Ime novog rasporeda</label>
+        <input type="text" id="new-version-name" placeholder="Unesite ime rasporeda..." />
+      </div>
+      <div class="form-group">
+        <label>Izaberite tip novog rasporeda</label>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <label style="display:flex;align-items:center;gap:10px;">
+            <input type="radio" name="new-version-type" value="empty" checked />
+            Prazni raspored
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;">
+            <input type="radio" name="new-version-type" value="copy" />
+            Kopiraj postojeći raspored
+          </label>
+        </div>
+      </div>
+      <div class="form-group" id="new-version-copy-from-group" style="display:none;">
+        <label>Kopiraj iz rasporeda</label>
+        <select id="new-version-copy-from"></select>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:6px;">
+        <button class="btn-secondary btn-full" id="btn-modal-new-version-cancel">Odustani</button>
+        <button class="btn-primary btn-full" id="btn-modal-new-version-create">Kreiraj</button>
+      </div>
     </div>
   </div>
 </div>
