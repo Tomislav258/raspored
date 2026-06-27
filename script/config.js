@@ -58,6 +58,14 @@ export const GRADE_TIME_RULES = {
   6: {
     'A': ['p'], // 6. razred A smjena: samo popodnevni
     'B': ['j']  // 6. razred B smjena: samo jutarnji
+  },
+  7: {
+    'A': ['p'], // 7. razred A smjena: samo popodnevni
+    'B': ['j']  // 7. razred B smjena: samo jutarnji
+  },
+  8: {
+    'A': ['j'], // 8. razred A smjena: samo jutarnji
+    'B': ['p']  // 8. razred B smjena: samo popodnevni
   }
   // Ostali razredi mogu imati oba vremenske perioda po defaultu
 };
