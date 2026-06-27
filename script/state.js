@@ -4,6 +4,8 @@ export let profesori = [];
 export let razredeConfig = [];
 export let schedule = {};
 export let is4ProEnabled = true;
+export let is5DopEnabled = true;
+export let is6DopEnabled = true;
 
 // Verzije rasporeda
 export let versions = [];
@@ -25,11 +27,21 @@ export function toggle4Pro(vrijednost) {
   is4ProEnabled = vrijednost;
 }
 
+export function toggle5Dop(vrijednost) {
+  is5DopEnabled = vrijednost;
+}
+
+export function toggle6Dop(vrijednost) {
+  is6DopEnabled = vrijednost;
+}
+
 export function save() {
   localStorage.setItem('rn_profesori', JSON.stringify(profesori));
   localStorage.setItem('rn_razredi', JSON.stringify(razredeConfig));
   localStorage.setItem('rn_schedule', JSON.stringify(schedule));
   localStorage.setItem('rn_4pro_enabled', JSON.stringify(is4ProEnabled));
+  localStorage.setItem('rn_5dop_enabled', JSON.stringify(is5DopEnabled));
+  localStorage.setItem('rn_6dop_enabled', JSON.stringify(is6DopEnabled));
   localStorage.setItem('rn_versions', JSON.stringify(versions));
   localStorage.setItem('rn_currentVersionId', JSON.stringify(currentVersionId));
 }
@@ -44,6 +56,10 @@ export function load() {
     schedule = s ? JSON.parse(s) : {};
     const pro = localStorage.getItem('rn_4pro_enabled');
     is4ProEnabled = pro ? JSON.parse(pro) : true;
+    const dop5 = localStorage.getItem('rn_5dop_enabled');
+    is5DopEnabled = dop5 ? JSON.parse(dop5) : true;
+    const dop6 = localStorage.getItem('rn_6dop_enabled');
+    is6DopEnabled = dop6 ? JSON.parse(dop6) : true;
     
     // Učitaj verzije
     const v = localStorage.getItem('rn_versions');
@@ -67,6 +83,9 @@ export function load() {
     profesori = JSON.parse(JSON.stringify(DEFAULT_PROFESORI));
     razredeConfig = JSON.parse(JSON.stringify(DEFAULT_RAZREDI_CONFIG));
     schedule = {};
+    is4ProEnabled = true;
+    is5DopEnabled = true;
+    is6DopEnabled = true;
     const defaultVersion = {
       id: uid(),
       name: 'Verzija 1',
