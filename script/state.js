@@ -96,12 +96,23 @@ export function setCurrentVersion(versionId) {
   }
 }
 
-export function createNewVersion(name) {
+export function createNewVersion(name, copyFromVersionId = null) {
+  let scheduleData = {};
+  let profesorRazredi = {};
+
+  if (copyFromVersionId) {
+    const sourceVersion = versions.find(v => v.id === copyFromVersionId);
+    if (sourceVersion) {
+      scheduleData = JSON.parse(JSON.stringify(sourceVersion.schedule || {}));
+      profesorRazredi = JSON.parse(JSON.stringify(sourceVersion.profesorRazredi || {}));
+    }
+  }
+
   const newVersion = {
     id: uid(),
     name: name || `Verzija ${versions.length + 1}`,
-    schedule: {},
-    profesorRazredi: {}
+    schedule: scheduleData,
+    profesorRazredi
   };
   versions.push(newVersion);
   currentVersionId = newVersion.id;
