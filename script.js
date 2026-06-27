@@ -38,6 +38,10 @@ function getMaxWeeklyHoursForRazred(razredId) {
   return razredId === '5.DOP' || razredId === '6.DOP' ? DOPUNSKA_MAX_HOURS : MAX_HOURS_WEEK;
 }
 
+function getMaxShiftHoursForRazred(razredId) {
+  return getMaxWeeklyHoursForRazred(razredId);
+}
+
 function getRazredSortKey(razredId) {
   const gradeMatch = razredId.match(/^(\d+)/);
   const grade = gradeMatch ? parseInt(gradeMatch[1], 10) : 99;
@@ -759,16 +763,24 @@ function renderStatistika() {
     const a = razredHours[rId]?.A || 0;
     const b = razredHours[rId]?.B || 0;
     const total = a + b;
+    const shiftMax = getMaxShiftHoursForRazred(rId);
+    const totalMax = shiftMax * 2;
+    const aComplete = a >= shiftMax;
+    const bComplete = b >= shiftMax;
+    const totalProgress = totalMax > 0 ? Math.min(100, (total / totalMax) * 100) : 0;
+    
+    const aHtml = `${a}${aComplete ? '<span class="stat-indicator">✓</span>' : ''}`;
+    const bHtml = `${b}${bComplete ? '<span class="stat-indicator">✓</span>' : ''}`;
     
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><strong>${rId}</strong></td>
-      <td>${a}</td>
-      <td>${b}</td>
+      <td>${aHtml}</td>
+      <td>${bHtml}</td>
       <td>
         <div class="stat-bar-wrap">
           <span style="min-width:28px">${total}</span>
-          <div class="stat-bar-bg"><div class="stat-bar" style="width:${(total/maxHoursR*100)}%"></div></div>
+          <div class="stat-bar-bg"><div class="stat-bar${total >= totalMax ? ' full' : ''}" style="width:${totalProgress}%"></div></div>
         </div>
       </td>
     `;

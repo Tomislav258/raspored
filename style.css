@@ -440,12 +440,29 @@ input:checked + .slider::before {
 }
 .stat-table tr:last-child td { border-bottom: none; }
 .stat-bar-wrap { display: flex; align-items: center; gap: 8px; }
+.stat-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #d1fae5;
+  color: #065f46;
+  font-size: 12px;
+  font-weight: 700;
+}
 .stat-bar {
   height: 8px;
   border-radius: 4px;
   background: #2563eb;
   min-width: 4px;
-  transition: width 0.3s;
+  transition: width 0.3s, background 0.3s;
+}
+.stat-bar.full {
+  background: #16a34a;
 }
 .stat-bar-bg {
   flex: 1;
