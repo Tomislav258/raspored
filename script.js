@@ -1,7 +1,7 @@
 import { JUTARNJI, POPODNEVNI, DAYS, SMJENE, MAX_PER_CELL, MAX_HOURS_WEEK, GRADE_TIME_RULES, DOPUNSKA_MAX_HOURS } from './script/config.js';
 import { 
   profesori, razredeConfig, schedule, isprazniSchedule, postaviProfesore,
-  load, save, uid, showToast, is4ProEnabled, is5DopEnabled, is6DopEnabled, toggle4Pro, toggle5Dop, toggle6Dop,
+  load, save, exportData, importData, uid, showToast, is4ProEnabled, is5DopEnabled, is6DopEnabled, toggle4Pro, toggle5Dop, toggle6Dop,
   versions, currentVersionId, getCurrentVersion, setCurrentVersion, createNewVersion, deleteVersion, renameVersion,
   getProfessorRazrediForVersion, setProfessorRazrediForVersion
 } from './script/state.js';
@@ -993,6 +993,54 @@ function createNewVersionFromForm() {
   showToast('Nova verzija kreirana!', 'success');
 }
 
+function handleExportData() {
+  try {
+    const data = exportData();
+    const blob = new Blob([data], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'raspored-backup.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Podaci su izvezeni u datoteku.', 'success');
+  } catch (error) {
+    console.error(error);
+    showToast('Greška pri izvozu podataka.', 'error');
+  }
+}
+
+function handleImportInput(event) {
+  const input = event.target;
+  if (!input.files || input.files.length === 0) return;
+
+  const file = input.files[0];
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      importData(reader.result);
+      renderSchedule();
+      renderProfesori();
+      renderRazredi();
+      renderStatistika();
+      renderVerzije();
+      showToast('Podaci su uspješno uvezeni.', 'success');
+      input.value = '';
+    } catch (error) {
+      console.error(error);
+      showToast('Neispravna datoteka za uvoz.', 'error');
+      input.value = '';
+    }
+  };
+  reader.onerror = () => {
+    showToast('Greška pri čitanju datoteke.', 'error');
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
+
 // ── EVENT LISTENERS ───────────────────────────────
 function initEvents() {
   // Navigacija: Klik na gumb sada samo mijenja URL Hash
@@ -1006,6 +1054,9 @@ function initEvents() {
   window.addEventListener('hashchange', handleRouting);
 
   // Verzije
+  document.getElementById('btn-export-data').addEventListener('click', handleExportData);
+  document.getElementById('btn-import-data').addEventListener('click', () => document.getElementById('import-data-input').click());
+  document.getElementById('import-data-input').addEventListener('change', handleImportInput);
   document.getElementById('btn-verzije').addEventListener('click', openVerzijModal);
   document.getElementById('btn-modal-verzije-close').addEventListener('click', closeVerzijModal);
   document.getElementById('modal-verzije-overlay').addEventListener('click', (e) => {

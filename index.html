@@ -44,7 +44,9 @@
         <h1>Tjedni Raspored</h1>
         <p class="page-subtitle">Kliknite na slot za dodavanje ili uklanjanje razreda (max. 3 istovremeno)</p>
       </div>
-      <div style="display: flex; gap: 12px;">
+      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <button class="btn-secondary" id="btn-export-data">Izvezi podatke</button>
+        <button class="btn-secondary" id="btn-import-data">Uvezi podatke</button>
         <button class="btn-secondary" id="btn-verzije">📋 Verzije rasporeda</button>
         <button class="btn-danger" id="btn-obrisi-sve">Obriši sve</button>
       </div>
@@ -208,6 +210,7 @@
   </div>
 </div>
 
+<input type="file" id="import-data-input" accept=".json,application/json" hidden />
 <div id="toast" class="toast hidden"></div>
 
 <script src="script.js" type="module"></script>
