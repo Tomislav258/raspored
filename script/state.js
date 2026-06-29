@@ -46,6 +46,54 @@ export function save() {
   localStorage.setItem('rn_currentVersionId', JSON.stringify(currentVersionId));
 }
 
+export function exportData() {
+  return JSON.stringify({
+    profesori,
+    razredeConfig,
+    schedule,
+    is4ProEnabled,
+    is5DopEnabled,
+    is6DopEnabled,
+    versions,
+    currentVersionId
+  }, null, 2);
+}
+
+export function importData(jsonText) {
+  const parsed = JSON.parse(jsonText);
+  if (!parsed || typeof parsed !== 'object') throw new Error('Invalid import data');
+
+  profesori = Array.isArray(parsed.profesori) ? parsed.profesori : [];
+  razredeConfig = Array.isArray(parsed.razredeConfig) ? parsed.razredeConfig : [];
+  schedule = parsed.schedule && typeof parsed.schedule === 'object' ? parsed.schedule : {};
+  is4ProEnabled = typeof parsed.is4ProEnabled === 'boolean' ? parsed.is4ProEnabled : true;
+  is5DopEnabled = typeof parsed.is5DopEnabled === 'boolean' ? parsed.is5DopEnabled : true;
+  is6DopEnabled = typeof parsed.is6DopEnabled === 'boolean' ? parsed.is6DopEnabled : true;
+  versions = Array.isArray(parsed.versions) ? parsed.versions : [];
+  currentVersionId = typeof parsed.currentVersionId === 'string' ? parsed.currentVersionId : (versions[0]?.id || null);
+
+  if (!versions.length) {
+    const defaultVersion = {
+      id: uid(),
+      name: 'Verzija 1',
+      schedule,
+      profesorRazredi: {}
+    };
+    versions = [defaultVersion];
+    currentVersionId = defaultVersion.id;
+  }
+
+  const currentVersion = getCurrentVersion();
+  if (currentVersion) {
+    schedule = currentVersion.schedule || schedule;
+  } else if (versions.length) {
+    currentVersionId = versions[0].id;
+    schedule = versions[0].schedule || schedule;
+  }
+
+  save();
+}
+
 export function load() {
   try {
     const p = localStorage.getItem('rn_profesori');
